@@ -22,7 +22,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -50,32 +49,29 @@ func CollectFromReader(file io.Reader, ch chan<- prometheus.Metric) error {
 	if len(columnNames) < 2 {
 		return fmt.Errorf("Input does not provide any columns")
 	}
-	columns := []*prometheus.Desc{}
-	for _, columnName := range columnNames[1:] {
-		columns = append(columns, prometheus.NewDesc(
-			prometheus.BuildFQName("dovecot", columnNames[0], columnName),
-			"Help text not provided by this exporter.",
-			[]string{columnNames[0]},
-			nil))
-	}
 
+	column := prometheus.NewDesc(
+		prometheus.BuildFQName("dovecot", "session", "connected"),
+		"Help text not provided by this exporter.",
+		[]string{"service"},
+		nil)
+
+	service := make(map[string]int)
 	// Read successive lines, containing the values.
 	for scanner.Scan() {
 		values := strings.Fields(scanner.Text())
-		if len(values) != len(columns) + 1 {
+		if len(values) < 4 {
 			break
 		}
-		for i, value := range values[1:] {
-			f, err := strconv.ParseFloat(value, 64)
-			if err != nil {
-				return err
-			}
-			ch <- prometheus.MustNewConstMetric(
-				columns[i],
-				prometheus.UntypedValue,
-				f,
-				values[0])
-		}
+		service[values[3]] += 1
+	}
+
+	for s, count := range service {
+		ch <- prometheus.MustNewConstMetric(
+			column,
+			prometheus.UntypedValue,
+			float64(count),
+			s)
 	}
 	return scanner.Err()
 }
@@ -93,7 +89,7 @@ func CollectFromSocket(path string, scope string, ch chan<- prometheus.Metric) e
 	if err != nil {
 		return err
 	}
-	_, err = conn.Write([]byte("EXPORT\t" + scope + "\n"))
+	_, err = conn.Write([]byte("EXPORT\t" + "session\t" + "connected" + "\n"))
 	if err != nil {
 		return err
 	}
